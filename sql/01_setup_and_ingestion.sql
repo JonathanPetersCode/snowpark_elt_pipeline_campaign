@@ -36,9 +36,9 @@ SELECT PARSE_JSON('{
 SELECT 
     payload:campaign::STRING AS campaign_name,
     payload:market::STRING AS market,
-    payload:metrics.budget::NUMERIC(10,2) AS budget,
-    payload:metrics.spend::NUMERIC(10,2) AS spend,
-    (payload:metrics.spend::NUMERIC(10,2) / payload:metrics.budget::NUMERIC(10,2)) * 100 AS pacing_pct
+    payload:metrics:budget::NUMERIC(10,2) AS budget,
+    payload:metrics:spend::NUMERIC(10,2) AS spend,
+    (payload:metrics:spend::NUMERIC(10,2) / NULLIF(payload:metrics:budget::NUMERIC(10,2), 0)) * 100 AS pacing_pct
 FROM MEDIA_DB.PUBLIC.RAW_CAMPAIGN_LOGS;
 
 -- 6. Create Dynamic Table to automate transformation (Replaces Domo Magic ETL)
@@ -47,17 +47,25 @@ CREATE OR REPLACE DYNAMIC TABLE MEDIA_DB.PUBLIC.FACT_CAMPAIGN_PACING
     WAREHOUSE = INTERVIEW_WH
 AS
 SELECT 
-    payload:campaign::STRING AS campaign_name,
-    payload:market::STRING AS market,
-    payload:metrics.budget::NUMERIC(10,2) AS budget,
-    payload:metrics.spend::NUMERIC(10,2) AS spend,
-    (payload:metrics.spend::NUMERIC(10,2) / payload:metrics.budget::NUMERIC(10,2)) * 100 AS pacing_pct,
+    campaign_name,
+    market,
+    budget,
+    spend,
+    pacing_pct,
     CASE 
-        WHEN (payload:metrics.spend::NUMERIC(10,2) / payload:metrics.budget::NUMERIC(10,2)) * 100 > 100 THEN 'OVER_BUDGET'
-        WHEN (payload:metrics.spend::NUMERIC(10,2) / payload:metrics.budget::NUMERIC(10,2)) * 100 < 85 THEN 'UNDER_PACING'
+        WHEN pacing_pct > 100 THEN 'OVER_BUDGET'
+        WHEN pacing_pct < 85 THEN 'UNDER_PACING'
         ELSE 'ON_PACING'
     END AS pacing_status
-FROM MEDIA_DB.PUBLIC.RAW_CAMPAIGN_LOGS;
+FROM (
+    SELECT 
+        payload:campaign::STRING AS campaign_name,
+        payload:market::STRING AS market,
+        payload:metrics:budget::NUMERIC(10,2) AS budget,
+        payload:metrics:spend::NUMERIC(10,2) AS spend,
+        (payload:metrics:spend::NUMERIC(10,2) / NULLIF(payload:metrics:budget::NUMERIC(10,2), 0)) * 100 AS pacing_pct
+    FROM MEDIA_DB.PUBLIC.RAW_CAMPAIGN_LOGS
+);
 
 -- 7. Query the dynamic table
 SELECT * FROM MEDIA_DB.PUBLIC.FACT_CAMPAIGN_PACING;
